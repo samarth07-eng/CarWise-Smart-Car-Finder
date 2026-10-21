@@ -1,0 +1,43 @@
+name,price,fuel,transmission,seats,type,mileage,safety,maintenance
+Maruti Swift,7,Petrol,Manual,5,Hatchback,25,4,3
+Maruti Baleno,8,Petrol,Manual,5,Hatchback,23,4,3
+Hyundai i20,9,Petrol,Automatic,5,Hatchback,20,3,3
+Tata Punch,7,Petrol,Manual,5,SUV,20,5,3
+Tata Nexon,10,Petrol,Manual,5,SUV,17,5,3
+Hyundai Creta,12,Diesel,Manual,5,SUV,21,5,3
+Kia Seltos,12,Petrol,Manual,5,SUV,17,5,3
+Maruti Ertiga,10,Petrol,Manual,7,MPV,20,3,3
+Toyota Innova,20,Diesel,Automatic,7,MPV,15,5,3
+Honda City,13,Petrol,Automatic,5,Sedan,18,5,3
+Tata Nexon EV,15,EV,Automatic,5,SUV,300,5,3
+Toyota Fortuner,35,Diesel,Automatic,7,SUV,14,5,3
+Maruti Dzire,7,Petrol,Manual,5,Sedan,23,4,3
+Maruti Fronx,8,Petrol,Manual,5,SUV,21,4,3
+Maruti Brezza,9,Petrol,Manual,5,SUV,20,4,3
+Maruti Grand Vitara,11,Petrol,Automatic,5,SUV,20,4,3
+Toyota Glanza,7,Petrol,Manual,5,Hatchback,22,4,3
+Toyota Rumion,11,Petrol,Manual,7,MPV,20,3,3
+Hyundai Exter,6,Petrol,Manual,5,SUV,19,4,3
+Hyundai Venue,8,Petrol,Manual,5,SUV,18,4,3
+Hyundai Verna,11,Petrol,Automatic,5,Sedan,19,5,3
+Kia Sonet,8,Petrol,Manual,5,SUV,18,4,3
+Kia Carens,11,Petrol,Manual,7,MPV,16,3,3
+Tata Altroz,7,Petrol,Manual,5,Hatchback,19,4,3
+Tata Tiago,5,Petrol,Manual,5,Hatchback,20,4,3
+Tata Tigor,6,Petrol,Manual,5,Sedan,19,4,3
+Mahindra XUV 3XO,8,Petrol,Manual,5,SUV,18,4,3
+Mahindra Scorpio N,14,Diesel,Manual,7,SUV,15,5,3
+Mahindra Thar,12,Diesel,Manual,4,SUV,15,4,3
+Mahindra Bolero,10,Diesel,Manual,7,SUV,16,3,3
+Honda Amaze,7,Petrol,Automatic,5,Sedan,18,4,3
+Honda Elevate,12,Petrol,Manual,5,SUV,16,4,3
+Toyota Hyryder,11,Petrol,Manual,5,SUV,20,4,3
+MG Hector,15,Petrol,Manual,5,SUV,14,4,3
+Volkswagen Virtus,12,Petrol,Manual,5,Sedan,19,5,3
+Skoda Slavia,12,Petrol,Manual,5,Sedan,19,5,3
+Citroen C3,6,Petrol,Manual,5,Hatchback,19,3,3
+Renault Kiger,6,Petrol,Manual,5,SUV,19,3,3
+Nissan Magnite,6,Petrol,Manual,5,SUV,19,4,3
+BYD Atto 3,25,EV,Automatic,5,SUV,400,5,3
+MG Comet EV,8,EV,Automatic,4,Hatchback,230,3,3
+Tata Tiago EV,8,EV,Automatic,5,Hatchback,250,4,3
