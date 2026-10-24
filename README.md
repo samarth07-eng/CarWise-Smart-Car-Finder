@@ -1,6 +1,10 @@
 
 # CarWise — Smart Car Finder
+## 🚀 Live Demo
 
+Try the deployed app here: [Open CarWise](https://carwise-smart-car-finder-lkddnzcgcbqbqvkjjq6bdf.streamlit.app/)
+
+CarWise helps users find suitable cars based on their budget, preferences, and ownership costs.
 CarWise is a Python and Streamlit application that helps
 users compare cars and find options matching their budget
 and preferences.
