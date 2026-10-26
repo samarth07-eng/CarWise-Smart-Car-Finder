@@ -5,6 +5,7 @@ import numpy as np
 
 from pathlib import Path
 from io import BytesIO
+import zipfile
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
@@ -37,37 +38,102 @@ DATA_FILE = Path(__file__).parent / "cars.csv"
 
 st.markdown("""
 <style>
+    :root {
+        --cw-navy: #102744;
+        --cw-blue: #1769d2;
+        --cw-pale: #eef5ff;
+        --cw-border: #dce7f5;
+        --cw-text: #172b4d;
+        --cw-muted: #61718a;
+    }
     .stApp {
-        background-color: #f5f7fb;
+        background: linear-gradient(180deg, #f4f8ff 0%, #f8faff 55%, #eef4fb 100%);
+        color: var(--cw-text);
     }
-
     .block-container {
-        padding-top: 1.5rem;
-        max-width: 1400px;
+        padding-top: 1.15rem;
+        padding-bottom: 2rem;
+        max-width: 1500px;
     }
-
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #102744 0%, #16385f 100%);
+        border-right: 1px solid #25466e;
+    }
+    [data-testid="stSidebar"] * { color: #f4f8ff; }
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+        color: #e5efff;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] > div,
+    [data-testid="stSidebar"] [data-baseweb="input"] > div {
+        background: #ffffff;
+        border-radius: 9px;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] span,
+    [data-testid="stSidebar"] [data-baseweb="input"] input {
+        color: #142a49;
+    }
     .hero {
-        background: linear-gradient(120deg, #10234f, #2459a9);
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(115deg, #0d2745 0%, #174477 58%, #2876c8 100%);
         color: white;
-        padding: 28px;
-        border-radius: 18px;
-        margin-bottom: 20px;
+        padding: 30px 32px;
+        border-radius: 20px;
+        margin: 0 0 18px 0;
+        border: 1px solid rgba(255,255,255,.18);
+        box-shadow: 0 12px 30px rgba(22, 59, 105, .16);
     }
-
-    .hero h1 {
-        color: white;
-        font-size: 36px;
+    .hero:after {
+        content: "🚘";
+        position: absolute;
+        right: 4%;
+        bottom: -24px;
+        font-size: 118px;
+        opacity: .16;
+        transform: rotate(-5deg);
+        pointer-events: none;
     }
-
-    .hero p {
-        color: #e4ecff;
-    }
-
+    .hero h1 { color: white !important; font-size: clamp(27px, 3vw, 39px); margin: 0 0 8px 0; }
+    .hero p { color: #e3efff !important; font-size: 16px; margin: 0; max-width: 760px; }
+    h1, h2, h3 { color: #142d52; letter-spacing: -.02em; }
+    h2, h3 { margin-top: .35rem; }
     div[data-testid="stMetric"] {
-        background: white;
-        padding: 12px;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
+        background: rgba(255,255,255,.94);
+        padding: 15px 16px;
+        border: 1px solid var(--cw-border);
+        border-radius: 15px;
+        box-shadow: 0 4px 14px rgba(25, 65, 115, .045);
+    }
+    div[data-testid="stMetricLabel"] { color: var(--cw-muted); }
+    div[data-testid="stMetricValue"] { color: #153b70; font-weight: 750; }
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        border-color: var(--cw-border);
+        border-radius: 14px;
+    }
+    div.stButton > button, div.stDownloadButton > button {
+        border-radius: 10px;
+        font-weight: 650;
+        border: 1px solid #cbdcf2;
+        transition: all .15s ease;
+    }
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(100deg, #1769d2, #2788ed);
+        border: none;
+        color: white;
+    }
+    div.stButton > button:hover, div.stDownloadButton > button:hover {
+        border-color: #1769d2;
+        color: #1458a7;
+        box-shadow: 0 4px 12px rgba(23, 105, 210, .12);
+    }
+    div[data-testid="stAlert"] { border-radius: 12px; }
+    hr { border-color: #dce7f5; }
+    [data-testid="stDataFrame"], [data-testid="stTable"] { border-radius: 12px; overflow: hidden; }
+    @media (max-width: 760px) {
+        .block-container { padding: .8rem .7rem 1.5rem .7rem; }
+        .hero { padding: 22px 20px; }
+        .hero:after { font-size: 74px; right: 1%; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -235,6 +301,41 @@ def calculate_ownership_score(car, budget, min_mileage, min_safety, max_maintena
              maintenance_score * 0.20 + safety_score * 0.15 +
              requirement_score * 0.10)
     return round(max(0.0, min(100.0, total)), 1)
+
+
+def get_match_score_breakdown(
+    car, budget, fuel, transmission, seats, car_type, min_mileage, min_safety
+):
+    """Return the exact rule-based components used by the recommendation score."""
+    budget_ratio = float(car["price"]) / max(float(budget), 0.01)
+    if budget_ratio <= 0.75:
+        budget_points = 15.0
+    else:
+        budget_points = max(8.0, 15.0 - ((budget_ratio - 0.75) / 0.25) * 7.0)
+
+    fuel_points = 15.0 if fuel == "Any" or str(car["fuel"]).lower() == str(fuel).lower() else 0.0
+    transmission_points = 10.0 if transmission == "Any" or str(car["transmission"]).lower() == str(transmission).lower() else 0.0
+    type_points = 15.0 if car_type == "Any" or str(car["type"]).lower() == str(car_type).lower() else 0.0
+    seat_points = 10.0 if float(car["seats"]) >= float(seats) else 0.0
+    mileage_points = 15.0 if float(min_mileage) <= 0 else min(15.0, max(0.0, float(car["mileage"]) / float(min_mileage) * 15.0))
+    safety_points = 15.0 if float(min_safety) <= 0 else min(15.0, max(0.0, float(car["safety"]) / float(min_safety) * 15.0))
+    maintenance_points = max(0.0, (6.0 - float(car["maintenance"])) / 5.0 * 5.0)
+
+    components = [
+        ("Budget fit", budget_points, 15),
+        ("Fuel preference", fuel_points, 15),
+        ("Transmission preference", transmission_points, 10),
+        ("Vehicle type preference", type_points, 15),
+        ("Seat capacity", seat_points, 10),
+        ("Mileage target", mileage_points, 15),
+        ("Safety target", safety_points, 15),
+        ("Maintenance level", maintenance_points, 5),
+    ]
+    return pd.DataFrame(components, columns=["Factor", "Points earned", "Maximum points"]).assign(
+        **{"Points earned": lambda frame: frame["Points earned"].round(1),
+           "Maximum points": lambda frame: frame["Maximum points"].astype(int),
+           "Percent of factor": lambda frame: (frame["Points earned"] / frame["Maximum points"] * 100).round(1)}
+    )
 
 
 def get_match_reasons(
@@ -586,15 +687,41 @@ def csv_download(dataframe, label, filename, key):
 
 st.markdown("""
 <div class="hero">
-    <h1>🚗 CarWise — Smart Car Finder</h1>
-    <p>Find suitable cars, compare specifications and download a report.</p>
+    <h1>🚗 Welcome to CarWise</h1>
+    <p>Your Smart Car Recommendation &amp; Ownership Guide</p>
+    <p style="margin-top:12px;font-size:14px;max-width:760px;">
+        Find cars for your budget, compare options, estimate ownership costs,
+        and make a more confident buying decision.
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
 st.caption(
-    "Recommendation engine: feature encoding, numerical scaling "
-    "and content-based similarity ranking."
+    "Personalized recommendations • Car comparison • Budget planning • Ownership-cost insights"
 )
+
+# Quick-access dashboard cards (links jump to the corresponding sections below)
+st.markdown("""
+<style>
+    .cw-quick-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin: 12px 0 20px 0; }
+    .cw-quick-card { display:block; min-height:108px; padding:17px 16px; border:1px solid #dce7f5; border-radius:15px;
+        background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(241,247,255,.96));
+        box-shadow:0 5px 16px rgba(25,65,115,.055); color:#142d52 !important; text-decoration:none !important; }
+    .cw-quick-card:hover { border-color:#7db5f5; box-shadow:0 8px 20px rgba(23,105,210,.12); transform:translateY(-1px); }
+    .cw-quick-icon { display:inline-flex; width:34px; height:34px; align-items:center; justify-content:center; border-radius:10px;
+        background:#e2efff; color:#1769d2; font-size:20px; margin-bottom:8px; }
+    .cw-quick-title { font-weight:750; font-size:15px; margin-bottom:5px; }
+    .cw-quick-desc { font-size:12px; line-height:1.45; color:#61718a; }
+    @media (max-width:900px) { .cw-quick-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:520px) { .cw-quick-grid { grid-template-columns:1fr; } }
+</style>
+<div class="cw-quick-grid">
+  <a class="cw-quick-card" href="#top-recommendations"><div class="cw-quick-icon">🚘</div><div class="cw-quick-title">Find Your Car</div><div class="cw-quick-desc">See your best matches and ranked recommendations.</div></a>
+  <a class="cw-quick-card" href="#smart-car-alternatives"><div class="cw-quick-icon">🔄</div><div class="cw-quick-title">Smart Alternatives</div><div class="cw-quick-desc">Explore other options that fit your needs.</div></a>
+  <a class="cw-quick-card" href="#five-year-ownership-cost-calculator"><div class="cw-quick-icon">🧮</div><div class="cw-quick-title">Ownership Cost</div><div class="cw-quick-desc">Estimate costs across five years of ownership.</div></a>
+  <a class="cw-quick-card" href="#smart-car-budget-planner"><div class="cw-quick-icon">💰</div><div class="cw-quick-title">Plan Your Budget</div><div class="cw-quick-desc">Check affordability before making a decision.</div></a>
+</div>
+""", unsafe_allow_html=True)
 
 
 # =========================================================
@@ -802,6 +929,32 @@ else:
         for reason in selected_reasons:
             st.write(f"✅ {reason}")
 
+        with st.expander("🔍 Explain this match score", expanded=True):
+            score_breakdown = get_match_score_breakdown(
+                best, budget, fuel, transmission, seats, car_type, min_mileage, min_safety
+            )
+            st.caption(
+                "The score is a transparent rule-based fit indicator. It is not a probability, "
+                "a prediction of reliability, or a guarantee of satisfaction."
+            )
+            st.dataframe(
+                score_breakdown,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Points earned": st.column_config.NumberColumn(format="%.1f"),
+                    "Maximum points": st.column_config.NumberColumn(format="%d"),
+                    "Percent of factor": st.column_config.ProgressColumn(
+                        min_value=0, max_value=100, format="%.1f%%"
+                    ),
+                },
+            )
+            st.write(
+                f"**Total:** {score_breakdown['Points earned'].sum():.1f} / "
+                f"{score_breakdown['Maximum points'].sum()} points. "
+                "A selected ‘Any’ preference earns full points because it is not being used to filter cars."
+            )
+
     st.divider()
     st.subheader("📄 Your Recommendation Report")
     st.write(
@@ -866,6 +1019,36 @@ else:
             st.write(f"Seats: {car['seats']:g}")
             st.write(f"Mileage: {car['mileage']:g}")
 
+    shortlist_export = eligible.copy()
+    shortlist_export["ownership_score"] = shortlist_export.apply(
+        lambda row: calculate_ownership_score(
+            row, budget, min_mileage, min_safety, max_maintenance,
+            fuel, transmission, seats, car_type
+        ),
+        axis=1,
+    )
+    export_columns = [
+        column for column in [
+            "name", "price", "fuel", "transmission", "seats", "type",
+            "mileage", "safety", "maintenance", "match_score",
+            "ownership_score", "match_reasons"
+        ] if column in shortlist_export.columns
+    ]
+    shortlist_export = shortlist_export[export_columns].rename(columns={
+        "name": "Car", "price": "Price (₹ lakh)", "fuel": "Fuel",
+        "transmission": "Transmission", "seats": "Seats", "type": "Vehicle type",
+        "mileage": "Mileage", "safety": "Safety / 5",
+        "maintenance": "Maintenance / 5", "match_score": "Preference match / 100",
+        "ownership_score": "Ownership suitability / 100", "match_reasons": "Why it matched"
+    })
+    st.download_button(
+        "⬇️ Download ranked shortlist with score explanations (CSV)",
+        data=shortlist_export.to_csv(index=False).encode("utf-8-sig"),
+        file_name="CarWise_Ranked_Shortlist.csv",
+        mime="text/csv",
+        key="download_ranked_shortlist_explained",
+        use_container_width=True,
+    )
     csv_download(
         eligible,
         "⬇️ Download recommendations",
@@ -1485,7 +1668,26 @@ if advisor_car_names:
     st.progress(checklist_progress)
     st.caption(f"Checklist completed: {len(completed_items)} of {len(checklist_items)}")
 
-    st.info("CarWise provides shortlist guidance using the dataset available in this project. Prices, mileage, safety and maintenance values may be sample or outdated data; verify them independently before making a purchase.")
+    checklist_export = pd.DataFrame({
+        "Car": [advisor_car_name] * len(checklist_items),
+        "Pre-purchase check": checklist_items,
+        "Status": ["Completed" if item in completed_items else "Pending" for item in checklist_items],
+    })
+    st.download_button(
+        label="⬇️ Download pre-purchase checklist (CSV)",
+        data=checklist_export.to_csv(index=False).encode("utf-8"),
+        file_name="CarWise_PrePurchase_Checklist.csv",
+        mime="text/csv",
+        key="download_pre_purchase_checklist",
+        use_container_width=True,
+    )
+
+    if len(completed_items) == len(checklist_items):
+        st.success("All checklist items are marked complete. Keep receipts and verification records before purchase.")
+    else:
+        st.info(f"You still have {len(checklist_items) - len(completed_items)} checklist items to verify before making a decision.")
+
+    st.caption("CarWise provides shortlist guidance using the dataset available in this project. Prices, mileage, safety and maintenance values may be sample or outdated data; verify them independently before making a purchase.")
 else:
     st.info("Add car records to cars.csv to use the Smart Car Buying Advisor.")
 
@@ -1665,6 +1867,351 @@ csv_download(
     "⬇️ Download catalogue",
     "carwise_catalogue.csv",
     "download_catalogue",
+)
+
+
+# =========================================================
+# DATASET HEALTH & QUALITY CENTRE
+# =========================================================
+
+st.divider()
+st.header("🧪 Dataset Health & Quality Centre")
+st.caption(
+    "A quick audit of the car records currently loaded by CarWise. "
+    "This checks the available dataset; it does not independently verify "
+    "prices or specifications with manufacturers."
+)
+
+quality_cars = cars.copy()
+quality_numeric = [
+    column for column in ["price", "seats", "mileage", "safety", "maintenance"]
+    if column in quality_cars.columns
+]
+
+exact_duplicate_count = int(quality_cars.duplicated().sum())
+identity_columns = [
+    column for column in ["name", "fuel", "transmission", "type"]
+    if column in quality_cars.columns
+]
+if identity_columns:
+    possible_duplicate_mask = quality_cars.duplicated(
+        subset=identity_columns, keep=False
+    )
+    possible_duplicate_rows = quality_cars.loc[possible_duplicate_mask].sort_values(
+        identity_columns
+    )
+else:
+    possible_duplicate_rows = quality_cars.iloc[0:0].copy()
+
+missing_by_column = quality_cars.isna().sum()
+missing_cell_count = int(missing_by_column.sum())
+invalid_checks = {
+    "Price must be greater than 0": (
+        (quality_cars["price"] <= 0) if "price" in quality_cars.columns
+        else pd.Series(False, index=quality_cars.index)
+    ),
+    "Seats must be greater than 0": (
+        (quality_cars["seats"] <= 0) if "seats" in quality_cars.columns
+        else pd.Series(False, index=quality_cars.index)
+    ),
+    "Mileage cannot be negative": (
+        (quality_cars["mileage"] < 0) if "mileage" in quality_cars.columns
+        else pd.Series(False, index=quality_cars.index)
+    ),
+    "Safety rating must be between 1 and 5": (
+        ~quality_cars["safety"].between(1, 5) if "safety" in quality_cars.columns
+        else pd.Series(False, index=quality_cars.index)
+    ),
+    "Maintenance rating must be between 1 and 5": (
+        ~quality_cars["maintenance"].between(1, 5) if "maintenance" in quality_cars.columns
+        else pd.Series(False, index=quality_cars.index)
+    ),
+}
+invalid_count_by_rule = {
+    rule: int(mask.fillna(True).sum())
+    for rule, mask in invalid_checks.items()
+}
+invalid_record_count = int(
+    pd.concat([mask.rename(rule) for rule, mask in invalid_checks.items()], axis=1)
+    .any(axis=1).sum()
+) if invalid_checks else 0
+
+quality_col1, quality_col2, quality_col3, quality_col4 = st.columns(4)
+quality_col1.metric("Loaded car records", f"{len(quality_cars):,}")
+quality_col2.metric("Exact duplicate rows", f"{exact_duplicate_count:,}")
+quality_col3.metric("Missing cells", f"{missing_cell_count:,}")
+quality_col4.metric("Records with range issues", f"{invalid_record_count:,}")
+
+with st.expander("View detailed dataset audit", expanded=False):
+    st.subheader("Missing values by column")
+    missing_report = pd.DataFrame({
+        "Column": missing_by_column.index,
+        "Missing values": missing_by_column.values,
+        "Missing percentage": [
+            round((count / len(quality_cars) * 100), 2) if len(quality_cars) else 0
+            for count in missing_by_column.values
+        ],
+    })
+    st.dataframe(missing_report, use_container_width=True, hide_index=True)
+
+    st.subheader("Range validation")
+    range_report = pd.DataFrame({
+        "Validation rule": list(invalid_count_by_rule.keys()),
+        "Records flagged": list(invalid_count_by_rule.values()),
+    })
+    st.dataframe(range_report, use_container_width=True, hide_index=True)
+
+    st.subheader("Possible repeated model configurations")
+    st.caption(
+        "These records share the same name, fuel, transmission and vehicle type. "
+        "They are flagged for review, not automatically deleted, because different "
+        "variants can legitimately share these details."
+    )
+    if possible_duplicate_rows.empty:
+        st.success("No repeated model configurations found by this check.")
+    else:
+        duplicate_columns = [
+            column for column in [
+                "name", "price", "fuel", "transmission", "seats", "type",
+                "mileage", "safety", "maintenance"
+            ] if column in possible_duplicate_rows.columns
+        ]
+        st.dataframe(
+            possible_duplicate_rows[duplicate_columns],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.download_button(
+            "⬇️ Download repeated configurations (CSV)",
+            data=possible_duplicate_rows[duplicate_columns].to_csv(index=False).encode("utf-8"),
+            file_name="CarWise_Possible_Duplicates.csv",
+            mime="text/csv",
+            key="download_possible_duplicates",
+            use_container_width=True,
+        )
+
+    issue_rows = []
+    for rule, count in invalid_count_by_rule.items():
+        if count:
+            issue_rows.append({"Issue": rule, "Affected records": count})
+    for column, count in missing_by_column.items():
+        if count:
+            issue_rows.append({"Issue": f"Missing values in {column}", "Affected records": int(count)})
+    if exact_duplicate_count:
+        issue_rows.append({"Issue": "Exact duplicate rows", "Affected records": exact_duplicate_count})
+    audit_export = pd.DataFrame(issue_rows, columns=["Issue", "Affected records"])
+    st.download_button(
+        "⬇️ Download dataset audit report (CSV)",
+        data=audit_export.to_csv(index=False).encode("utf-8"),
+        file_name="CarWise_Dataset_Audit.csv",
+        mime="text/csv",
+        key="download_dataset_audit",
+        use_container_width=True,
+    )
+
+    if exact_duplicate_count == 0 and missing_cell_count == 0 and invalid_record_count == 0:
+        st.success("No exact duplicates, missing cells, or checked range issues were detected in the loaded dataset.")
+    else:
+        st.info("Review the audit results before expanding the dataset. Records are not automatically removed by this report.")
+
+
+# =========================================================
+# RECOMMENDATION FEEDBACK CENTRE
+# =========================================================
+
+st.divider()
+st.header("💬 CarWise Recommendation Feedback")
+st.write(
+    "Record whether the recommendations were useful. This creates an exportable feedback log "
+    "for future evaluation; it does not automatically retrain the recommendation engine."
+)
+
+if "carwise_feedback_log" not in st.session_state:
+    st.session_state.carwise_feedback_log = []
+
+feedback_car_options = cars["name"].astype(str).drop_duplicates().tolist()
+if selected_for_report is not None:
+    current_recommended_name = str(selected_for_report.get("name", feedback_car_options[0] if feedback_car_options else ""))
+else:
+    current_recommended_name = feedback_car_options[0] if feedback_car_options else ""
+
+with st.form("carwise_feedback_form", clear_on_submit=True):
+    feedback_car = st.selectbox(
+        "Which car are you giving feedback about?",
+        options=feedback_car_options,
+        index=feedback_car_options.index(current_recommended_name) if current_recommended_name in feedback_car_options else 0,
+        key="feedback_car_choice",
+    )
+    feedback_rating = st.select_slider(
+        "How useful was this recommendation?",
+        options=["Not useful", "Somewhat useful", "Useful", "Very useful"],
+        value="Useful",
+    )
+    feedback_reason = st.selectbox(
+        "Main reason",
+        ["Matches my budget", "Matches my requirements", "Good value", "Missing important options", "Price or specifications seem inaccurate", "Other"],
+    )
+    feedback_notes = st.text_area(
+        "Optional comments",
+        placeholder="Example: I need more boot space or the on-road price is different.",
+        max_chars=500,
+    )
+    feedback_submitted = st.form_submit_button("Save Feedback", use_container_width=True)
+
+if feedback_submitted:
+    st.session_state.carwise_feedback_log.append({
+        "timestamp_utc": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "car_name": feedback_car,
+        "usefulness": feedback_rating,
+        "reason": feedback_reason,
+        "comments": feedback_notes.strip(),
+    })
+    st.success("Feedback saved for this active session.")
+
+feedback_df = pd.DataFrame(
+    st.session_state.carwise_feedback_log,
+    columns=["timestamp_utc", "car_name", "usefulness", "reason", "comments"],
+)
+feedback_left, feedback_right = st.columns([2, 1])
+with feedback_left:
+    st.metric("Feedback entries this session", len(feedback_df))
+    if not feedback_df.empty:
+        st.dataframe(feedback_df.tail(5), use_container_width=True, hide_index=True)
+    else:
+        st.caption("No feedback has been saved in this session yet.")
+with feedback_right:
+    st.download_button(
+        "⬇️ Download Feedback Log (CSV)",
+        data=feedback_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name="CarWise_Recommendation_Feedback.csv",
+        mime="text/csv",
+        key="download_feedback_log",
+        use_container_width=True,
+    )
+    st.caption("Feedback is kept in the current Streamlit session and is not sent to a server database.")
+
+
+# =========================================================
+# ONE-CLICK CARWISE BUYER PACK
+# =========================================================
+
+st.divider()
+st.header("📦 One-Click CarWise Buyer Pack")
+st.write(
+    "Download your key CarWise results together in one ZIP file: recommendations, "
+    "the complete catalogue, a pre-purchase checklist, a dataset audit, and your "
+    "PDF recommendation report when a suitable car is available."
+)
+
+buyer_pack_buffer = BytesIO()
+
+# Build a concise audit summary from the records currently loaded by CarWise.
+required_audit_columns = [
+    "name", "price", "fuel", "transmission", "seats", "type",
+    "mileage", "safety", "maintenance"
+]
+missing_audit = {
+    column: int(cars[column].isna().sum())
+    for column in required_audit_columns
+    if column in cars.columns
+}
+exact_duplicates = int(cars.duplicated().sum())
+possible_duplicates = cars.duplicated(
+    subset=[column for column in ["name", "fuel", "transmission", "type"] if column in cars.columns],
+    keep=False,
+).sum() if all(column in cars.columns for column in ["name", "fuel", "transmission", "type"]) else 0
+
+buyer_audit_rows = [
+    {"Check": "Loaded car records", "Result": len(cars)},
+    {"Check": "Exact duplicate rows", "Result": exact_duplicates},
+    {"Check": "Possible repeated model configurations", "Result": int(possible_duplicates)},
+    {"Check": "Records without HTTPS image URL", "Result": int((~cars["image_url"].astype(str).str.startswith("https://")).sum()) if "image_url" in cars.columns else len(cars)},
+]
+for column, count in missing_audit.items():
+    buyer_audit_rows.append({"Check": f"Missing values: {column}", "Result": count})
+
+buyer_checklist_items = [
+    "Confirm exact model and variant",
+    "Verify current on-road price and taxes",
+    "Take a test drive",
+    "Check service history and warranty",
+    "Verify safety features for the exact variant",
+    "Compare insurance quotes",
+    "Estimate fuel or charging cost",
+    "Inspect tyres, documents and vehicle condition",
+    "Check availability of service centres and spare parts",
+]
+buyer_checklist_template = pd.DataFrame({
+    "Pre-purchase check": buyer_checklist_items,
+    "Status": ["Pending"] * len(buyer_checklist_items),
+    "Notes": [""] * len(buyer_checklist_items),
+})
+
+with zipfile.ZipFile(buyer_pack_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as buyer_zip:
+    recommendations_export = eligible.copy() if "eligible" in globals() else pd.DataFrame()
+    if not recommendations_export.empty:
+        buyer_zip.writestr(
+            "CarWise_Recommendations.csv",
+            recommendations_export.to_csv(index=False).encode("utf-8-sig"),
+        )
+    else:
+        buyer_zip.writestr(
+            "CarWise_Recommendations.csv",
+            "No eligible recommendations for the current filters.\n",
+        )
+
+    catalogue_export = cars.copy()
+    buyer_zip.writestr(
+        "CarWise_Full_Catalogue.csv",
+        catalogue_export.to_csv(index=False).encode("utf-8-sig"),
+    )
+    buyer_zip.writestr(
+        "CarWise_PrePurchase_Checklist_Template.csv",
+        buyer_checklist_template.to_csv(index=False).encode("utf-8-sig"),
+    )
+    buyer_zip.writestr(
+        "CarWise_Dataset_Audit_Summary.csv",
+        pd.DataFrame(buyer_audit_rows).to_csv(index=False).encode("utf-8-sig"),
+    )
+    buyer_zip.writestr(
+        "CarWise_Recommendation_Feedback.csv",
+        feedback_df.to_csv(index=False).encode("utf-8-sig"),
+    )
+
+    if selected_for_report is not None:
+        try:
+            buyer_pdf = build_pdf_report(
+                selected_for_report,
+                budget,
+                selected_score,
+                selected_reasons,
+                selected_pros,
+                selected_checks,
+                None,
+            )
+            buyer_zip.writestr("CarWise_Recommendation_Report.pdf", buyer_pdf)
+        except Exception:
+            buyer_zip.writestr(
+                "PDF_Report_Note.txt",
+                "The PDF report could not be generated for this run. Use the PDF download in the Best Recommendation section if available.\n",
+            )
+    else:
+        buyer_zip.writestr(
+            "PDF_Report_Note.txt",
+            "No eligible car was available for the current filters, so a recommendation PDF was not included.\n",
+        )
+
+st.download_button(
+    label="⬇️ Download Complete CarWise Buyer Pack (ZIP)",
+    data=buyer_pack_buffer.getvalue(),
+    file_name="CarWise_Complete_Buyer_Pack.zip",
+    mime="application/zip",
+    key="download_complete_buyer_pack",
+    use_container_width=True,
+)
+st.caption(
+    "The ZIP is generated from the current app dataset and filters. Checklist entries start as pending; "
+    "the audit is a basic data summary, not independent verification of car specifications or prices."
 )
 
 
