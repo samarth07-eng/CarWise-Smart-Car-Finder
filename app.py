@@ -224,6 +224,99 @@ if cars.empty:
     st.stop()
 
 
+@st.cache_data
+def audit_raw_dataset(file_path, modified_time):
+    """Audit the source CSV before the loader cleans or removes records."""
+    raw = pd.read_csv(file_path)
+    raw.columns = [str(column).strip().lower() for column in raw.columns]
+    original_count = len(raw)
+    issues = []
+
+    required = ["name", "price", "fuel", "transmission", "seats", "type", "mileage", "safety"]
+    for column in required:
+        if column not in raw.columns:
+            issues.append({"Severity": "Critical", "Issue": f"Missing required column: {column}", "Affected rows": original_count})
+
+    numeric_ranges = {
+        "price": (0, None),
+        "seats": (1, 20),
+        "mileage": (0, 1000),
+        "safety": (0, 5),
+        "maintenance": (1, 5),
+    }
+    for column, (minimum, maximum) in numeric_ranges.items():
+        if column not in raw.columns:
+            if column == "maintenance":
+                issues.append({"Severity": "Info", "Issue": "Maintenance column missing; app assigns default level 3", "Affected rows": original_count})
+            continue
+        values = pd.to_numeric(raw[column], errors="coerce")
+        bad = values.isna()
+        if minimum is not None:
+            bad |= values < minimum
+        if maximum is not None:
+            bad |= values > maximum
+        count = int(bad.sum())
+        if count:
+            issues.append({"Severity": "Warning", "Issue": f"Missing, non-numeric, or out-of-range values in '{column}'", "Affected rows": count})
+
+    for column in ["name", "fuel", "transmission", "type"]:
+        if column in raw.columns:
+            count = int(raw[column].isna().sum() + raw[column].astype(str).str.strip().eq("").sum())
+            if count:
+                issues.append({"Severity": "Warning", "Issue": f"Blank values in '{column}'", "Affected rows": count})
+
+    exact_dupes = int(raw.duplicated().sum())
+    if exact_dupes:
+        issues.append({"Severity": "Warning", "Issue": "Exact duplicate rows", "Affected rows": exact_dupes})
+
+    key_columns = [column for column in ["name", "fuel", "transmission", "type"] if column in raw.columns]
+    if len(key_columns) == 4:
+        possible_dupes = raw.duplicated(subset=key_columns, keep=False)
+        possible_count = int(possible_dupes.sum())
+        if possible_count:
+            issues.append({"Severity": "Review", "Issue": "Repeated model/configuration combinations (may be valid variants)", "Affected rows": possible_count})
+
+    if "image_url" in raw.columns:
+        image_values = raw["image_url"].fillna("").astype(str).str.strip()
+        missing_images = int((~image_values.str.startswith("https://")).sum())
+    else:
+        missing_images = original_count
+    if missing_images:
+        issues.append({"Severity": "Info", "Issue": "Missing or non-HTTPS image URLs", "Affected rows": missing_images})
+
+    issue_frame = pd.DataFrame(issues, columns=["Severity", "Issue", "Affected rows"])
+    if issue_frame.empty:
+        issue_frame = pd.DataFrame([{"Severity": "Success", "Issue": "No issues detected by these basic checks", "Affected rows": 0}])
+
+    summary = {
+        "source_rows": original_count,
+        "clean_rows": len(cars),
+        "removed_or_filtered_rows": max(0, original_count - len(cars)),
+        "exact_duplicates": exact_dupes,
+        "missing_images": missing_images,
+        "issue_count": len(issues),
+    }
+    return raw, issue_frame, summary
+
+
+try:
+    raw_cars_for_audit, dataset_issues, dataset_health = audit_raw_dataset(
+        str(DATA_FILE), DATA_FILE.stat().st_mtime
+    )
+except Exception as audit_error:
+    raw_cars_for_audit = pd.DataFrame()
+    dataset_issues = pd.DataFrame([{
+        "Severity": "Warning",
+        "Issue": f"Could not audit source CSV: {audit_error}",
+        "Affected rows": 0,
+    }])
+    dataset_health = {
+        "source_rows": 0, "clean_rows": len(cars),
+        "removed_or_filtered_rows": 0, "exact_duplicates": 0,
+        "missing_images": 0, "issue_count": 1,
+    }
+
+
 # =========================================================
 # RECOMMENDATION ENGINE
 # =========================================================
@@ -2013,6 +2106,47 @@ with st.expander("View detailed dataset audit", expanded=False):
         st.success("No exact duplicates, missing cells, or checked range issues were detected in the loaded dataset.")
     else:
         st.info("Review the audit results before expanding the dataset. Records are not automatically removed by this report.")
+
+
+# =========================================================
+# DATASET HEALTH & TRUST CENTRE
+# =========================================================
+
+st.divider()
+st.header("🩺 Dataset Health & Trust Centre")
+st.write(
+    "These checks inspect the original cars.csv before cleaning. They help identify data-quality risks; "
+    "they do not independently verify real-world prices, mileage, safety ratings, or specifications."
+)
+health_cols = st.columns(4)
+health_cols[0].metric("Source records", f"{dataset_health['source_rows']:,}")
+health_cols[1].metric("Records used", f"{dataset_health['clean_rows']:,}")
+health_cols[2].metric("Filtered during loading", f"{dataset_health['removed_or_filtered_rows']:,}")
+health_cols[3].metric("Exact duplicates", f"{dataset_health['exact_duplicates']:,}")
+
+with st.expander("View data-quality findings", expanded=False):
+    st.dataframe(dataset_issues, use_container_width=True, hide_index=True)
+    st.caption(
+        "Repeated model/configuration combinations may represent legitimate variants. "
+        "Review findings before editing or deleting source data."
+    )
+    st.download_button(
+        "⬇️ Download data-quality report (CSV)",
+        data=dataset_issues.to_csv(index=False).encode("utf-8-sig"),
+        file_name="CarWise_Dataset_Health_Report.csv",
+        mime="text/csv",
+        key="download_dataset_health_report",
+        use_container_width=True,
+    )
+    if not raw_cars_for_audit.empty:
+        st.download_button(
+            "⬇️ Download original source data (CSV)",
+            data=raw_cars_for_audit.to_csv(index=False).encode("utf-8-sig"),
+            file_name="CarWise_Original_Cars_Data.csv",
+            mime="text/csv",
+            key="download_original_car_data",
+            use_container_width=True,
+        )
 
 
 # =========================================================
