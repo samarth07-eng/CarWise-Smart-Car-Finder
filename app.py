@@ -2350,6 +2350,114 @@ st.caption(
 
 
 # =========================================================
+# PERSONALIZED OWNERSHIP SCENARIO PLANNER
+# =========================================================
+
+st.divider()
+st.header("🧮 Personalized Ownership Scenario Planner")
+st.caption(
+    "Compare an editable ownership-cost scenario for a car in your dataset. "
+    "These are estimates, not dealer quotations; adjust the assumptions to your situation."
+)
+
+scenario_car_names = cars["name"].astype(str).drop_duplicates().sort_values().tolist()
+if scenario_car_names:
+    scenario_left, scenario_right = st.columns([1, 1])
+    with scenario_left:
+        scenario_car_name = st.selectbox(
+            "Choose a car for your scenario",
+            scenario_car_names,
+            key="scenario_car_name",
+        )
+        scenario_matches = cars[cars["name"].astype(str) == scenario_car_name]
+        scenario_row = scenario_matches.iloc[0]
+        scenario_price_lakh = max(0.0, float(pd.to_numeric(scenario_row.get("price", 0), errors="coerce") or 0))
+        scenario_mileage = max(0.0, float(pd.to_numeric(scenario_row.get("mileage", 0), errors="coerce") or 0))
+        scenario_fuel = str(scenario_row.get("fuel", "Petrol"))
+        scenario_years = st.slider("Ownership period (years)", 1, 10, 5, key="scenario_years")
+        scenario_annual_km = st.number_input(
+            "Expected distance per year (km)", min_value=1000, max_value=100000,
+            value=12000, step=1000, key="scenario_annual_km"
+        )
+    with scenario_right:
+        st.markdown("**Edit these assumptions**")
+        default_fuel_cost = 8.0 if "ev" in scenario_fuel.lower() or "electric" in scenario_fuel.lower() else (3.0 if "cng" in scenario_fuel.lower() else (7.0 if "diesel" in scenario_fuel.lower() else 6.0))
+        scenario_unit_cost = st.number_input(
+            "Energy/fuel cost per unit (₹)", min_value=0.0, max_value=500.0,
+            value=float(default_fuel_cost), step=0.5, key="scenario_unit_cost"
+        )
+        scenario_maintenance_year = st.number_input(
+            "Maintenance per year (₹)", min_value=0, max_value=1000000,
+            value=int(max(5000, scenario_price_lakh * 100000 * 0.012)), step=1000,
+            key="scenario_maintenance_year"
+        )
+        scenario_insurance_year = st.number_input(
+            "Insurance per year (₹)", min_value=0, max_value=500000,
+            value=int(max(5000, scenario_price_lakh * 100000 * 0.025)), step=1000,
+            key="scenario_insurance_year"
+        )
+        scenario_resale_percent = st.slider(
+            "Estimated resale value after ownership (%)", 0, 90, 40,
+            key="scenario_resale_percent"
+        )
+
+    if scenario_mileage > 0:
+        scenario_energy_cost_year = (float(scenario_annual_km) / scenario_mileage) * float(scenario_unit_cost)
+    else:
+        scenario_energy_cost_year = 0.0
+        st.warning("This car has no usable mileage value in the dataset. Energy/fuel cost is shown as ₹0 until you correct the data or calculate it separately.")
+
+    scenario_purchase_rupees = scenario_price_lakh * 100000
+    scenario_energy_total = scenario_energy_cost_year * scenario_years
+    scenario_maintenance_total = float(scenario_maintenance_year) * scenario_years
+    scenario_insurance_total = float(scenario_insurance_year) * scenario_years
+    scenario_resale_value = scenario_purchase_rupees * (float(scenario_resale_percent) / 100)
+    scenario_total_net = max(0.0, scenario_purchase_rupees + scenario_energy_total + scenario_maintenance_total + scenario_insurance_total - scenario_resale_value)
+    scenario_total_paid_before_resale = scenario_purchase_rupees + scenario_energy_total + scenario_maintenance_total + scenario_insurance_total
+    scenario_per_month = scenario_total_net / max(1, scenario_years * 12)
+
+    st.markdown("#### Your estimated ownership picture")
+    scenario_metrics = st.columns(4)
+    scenario_metrics[0].metric("Purchase price", f"₹{scenario_purchase_rupees:,.0f}")
+    scenario_metrics[1].metric(f"Total cost over {scenario_years} years", f"₹{scenario_total_net:,.0f}")
+    scenario_metrics[2].metric("Average per month", f"₹{scenario_per_month:,.0f}")
+    scenario_metrics[3].metric("Resale estimate", f"₹{scenario_resale_value:,.0f}")
+
+    scenario_breakdown = pd.DataFrame([
+        {"Cost component": "Purchase price", "Estimated amount (₹)": round(scenario_purchase_rupees)},
+        {"Cost component": f"Energy/fuel over {scenario_years} years", "Estimated amount (₹)": round(scenario_energy_total)},
+        {"Cost component": f"Maintenance over {scenario_years} years", "Estimated amount (₹)": round(scenario_maintenance_total)},
+        {"Cost component": f"Insurance over {scenario_years} years", "Estimated amount (₹)": round(scenario_insurance_total)},
+        {"Cost component": "Less: estimated resale value", "Estimated amount (₹)": round(-scenario_resale_value)},
+        {"Cost component": "Estimated net ownership cost", "Estimated amount (₹)": round(scenario_total_net)},
+    ])
+    st.dataframe(scenario_breakdown, use_container_width=True, hide_index=True)
+    st.bar_chart(scenario_breakdown.set_index("Cost component")["Estimated amount (₹)"].iloc[:-1])
+
+    scenario_export = scenario_breakdown.copy()
+    scenario_export.insert(0, "Car", scenario_car_name)
+    scenario_export["Ownership period (years)"] = scenario_years
+    scenario_export["Annual distance (km)"] = scenario_annual_km
+    scenario_export["Fuel/energy cost per unit (₹)"] = scenario_unit_cost
+    st.download_button(
+        "⬇️ Download ownership scenario (CSV)",
+        data=scenario_export.to_csv(index=False).encode("utf-8-sig"),
+        file_name="CarWise_Ownership_Scenario.csv",
+        mime="text/csv",
+        key="download_ownership_scenario",
+        use_container_width=True,
+    )
+    st.caption(
+        f"Scenario assumptions: {scenario_fuel} car; dataset mileage {scenario_mileage:g}; "
+        "no loan interest, repairs, parking, tolls, taxes or price changes included. "
+        "The energy-cost formula treats mileage as distance per unit; for EVs this assumes km/kWh. "
+        "Verify the units and all figures for the exact variant before making a purchase."
+    )
+else:
+    st.info("Add car records to the dataset to use the ownership scenario planner.")
+
+
+# =========================================================
 # PROJECT INFORMATION
 # =========================================================
 
