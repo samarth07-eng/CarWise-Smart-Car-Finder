@@ -6,6 +6,7 @@ import numpy as np
 from pathlib import Path
 from io import BytesIO
 import zipfile
+import tempfile
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
@@ -29,7 +30,12 @@ st.set_page_config(
     layout="wide",
 )
 
-DATA_FILE = Path(__file__).parent / "cars.csv"
+PROJECT_DIR = Path(__file__).parent
+# Prefer the expanded 101-car catalogue when it is present; otherwise use the
+# project's original cars.csv so the app can still start on a clean checkout.
+EXPANDED_DATA_FILE = PROJECT_DIR / "cars_expanded_test.csv"
+BASE_DATA_FILE = PROJECT_DIR / "cars.csv"
+DATA_FILE = EXPANDED_DATA_FILE if EXPANDED_DATA_FILE.exists() else BASE_DATA_FILE
 
 
 # =========================================================
@@ -53,7 +59,24 @@ st.markdown("""
     .block-container {
         padding-top: 1.15rem;
         padding-bottom: 2rem;
-        max-width: 1500px;
+        padding-left: clamp(1rem, 2vw, 2rem);
+        padding-right: clamp(1rem, 2vw, 2rem);
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+    [data-testid="stMainBlockContainer"] > div {
+        max-width: 100% !important;
+    }
+    section[data-testid="stSidebar"] {
+        min-width: 265px;
+        max-width: 300px;
+    }
+    [data-testid="stMainBlockContainer"] {
+        width: 100%;
+        max-width: 100%;
+    }
+    .stApp, [data-testid="stAppViewContainer"] {
+        width: 100%;
     }
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #102744 0%, #16385f 100%);
@@ -94,8 +117,9 @@ st.markdown("""
         transform: rotate(-5deg);
         pointer-events: none;
     }
-    .hero h1 { color: white !important; font-size: clamp(27px, 3vw, 39px); margin: 0 0 8px 0; }
-    .hero p { color: #e3efff !important; font-size: 16px; margin: 0; max-width: 760px; }
+    .hero h1 { color: white !important; font-size: clamp(28px, 2.7vw, 42px); margin: 0 0 8px 0; }
+    .hero p { color: #e3efff !important; font-size: clamp(14px, 1.1vw, 17px); margin: 0; max-width: 760px; line-height: 1.55; }
+    .hero { min-height: 170px; }
     h1, h2, h3 { color: #142d52; letter-spacing: -.02em; }
     h2, h3 { margin-top: .35rem; }
     div[data-testid="stMetric"] {
@@ -130,10 +154,68 @@ st.markdown("""
     div[data-testid="stAlert"] { border-radius: 12px; }
     hr { border-color: #dce7f5; }
     [data-testid="stDataFrame"], [data-testid="stTable"] { border-radius: 12px; overflow: hidden; }
+    /* CarWise premium dashboard layer */
+    .cw-brand { display:flex; align-items:center; gap:12px; padding:5px 2px 18px 2px; border-bottom:1px solid rgba(255,255,255,.16); margin-bottom:18px; }
+    .cw-brand-mark { width:48px; height:42px; display:flex; align-items:center; justify-content:center; font-size:31px; background:linear-gradient(135deg,#0aa8ff,#1467e8); border-radius:14px; box-shadow:0 7px 18px rgba(0,125,255,.25); }
+    .cw-brand-name { color:#fff; font-size:25px; line-height:1.05; font-weight:850; letter-spacing:-.7px; }
+    .cw-brand-tag { color:#c7dcf9; font-size:11px; margin-top:4px; }
+    .cw-eyebrow { color:#1769d2; font-size:11px; font-weight:800; letter-spacing:1.4px; text-transform:uppercase; margin-bottom:5px; }
+    .hero { background:linear-gradient(105deg,rgba(5,55,135,.98) 0%,rgba(11,85,178,.94) 48%,rgba(19,108,198,.74) 100%), url('https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1800&q=85') center 56%/cover; min-height:155px; display:flex; flex-direction:column; justify-content:center; }
+    .hero:after { content:"🚘"; font-size:100px; opacity:.22; right:4%; bottom:-15px; filter:drop-shadow(0 7px 8px rgba(0,0,0,.2)); }
+    .hero h1 { text-shadow:0 2px 8px rgba(0,0,0,.15); }
+    .cw-section-label { font-size:12px; color:#1769d2; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+    [data-testid="stMarkdownContainer"] p { line-height: 1.5; }
+    [data-testid="stSubheader"] { margin-top: .25rem; }
+    div[data-testid="stMetric"] { transition:transform .15s ease, box-shadow .15s ease; }
+    div[data-testid="stMetric"]:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(25,65,115,.09); }
+    [data-testid="stSidebar"] .cw-brand-tag { color:#c7dcf9 !important; }
+    [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p { font-size: .92rem; }
+    @media (max-width: 760px) { .cw-brand-name {font-size:22px;} .hero {min-height:135px;} }
+    @media (max-width: 900px) {
+        section[data-testid="stSidebar"] { min-width: 0; max-width: 100%; }
+        .block-container { padding: .8rem 1rem 1.5rem 1rem; }
+    }
     @media (max-width: 760px) {
-        .block-container { padding: .8rem .7rem 1.5rem .7rem; }
-        .hero { padding: 22px 20px; }
+        .hero { padding: 22px 20px; min-height: 135px; }
         .hero:after { font-size: 74px; right: 1%; }
+        .cw-brand-name {font-size:22p
+        x;}
+    }
+
+    /* CarWise dropdown contrast fix: force readable dark text on white controls. */
+    [data-testid="stSidebar"] [data-baseweb="select"] > div,
+    [data-testid="stSidebar"] [data-baseweb="select"] [role="combobox"] {
+        background-color: #ffffff !important;
+        border-color: #cbd8e8 !important;
+        color: #142a49 !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] *,
+    [data-testid="stSidebar"] [data-baseweb="select"] input,
+    [data-testid="stSidebar"] [data-baseweb="select"] [role="combobox"] * {
+        color: #142a49 !important;
+        -webkit-text-fill-color: #142a49 !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="select"] svg {
+        fill: #142a49 !important;
+        color: #142a49 !important;
+    }
+    [data-baseweb="popover"] [role="listbox"],
+    [data-baseweb="popover"] [role="option"] {
+        background-color: #ffffff !important;
+        color: #142a49 !important;
+        -webkit-text-fill-color: #142a49 !important;
+        opacity: 1 !important;
+    }
+    [data-baseweb="popover"] [role="option"] * {
+        color: #142a49 !important;
+        -webkit-text-fill-color: #142a49 !important;
+    }
+    [data-baseweb="popover"] [role="option"]:hover,
+    [data-baseweb="popover"] [role="option"][aria-selected="true"] {
+        background-color: #eaf2ff !important;
+        color: #142a49 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -176,6 +258,24 @@ def load_cars(file_path, modified_time):
     if "image_url" not in df.columns:
         df["image_url"] = ""
 
+    # Extended catalogue fields. Blank values mean "not verified / not supplied".
+    optional_text = [
+        "brand", "variant", "model_year", "price_basis", "source_url",
+        "last_verified", "data_status", "safety_source", "engine", "battery",
+        "powertrain_notes", "features", "image_url",
+    ]
+    optional_numeric = [
+        "price_min_lakh", "price_max_lakh", "engine_cc", "power_bhp",
+        "torque_nm", "boot_litres", "ground_clearance_mm", "range_km",
+    ]
+    for column in optional_text:
+        if column not in df.columns:
+            df[column] = ""
+    for column in optional_numeric:
+        if column not in df.columns:
+            df[column] = np.nan
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+
     for column in ["name", "fuel", "transmission", "type"]:
         df[column] = (
             df[column]
@@ -204,13 +304,20 @@ def load_cars(file_path, modified_time):
 
     df["safety"] = df["safety"].clip(0, 5)
     df["maintenance"] = df["maintenance"].clip(1, 5)
-    df["image_url"] = df["image_url"].fillna("").astype(str).str.strip()
+    for column in optional_text:
+        df[column] = df[column].fillna("").astype(str).str.strip()
+    missing_brand = df["brand"].eq("")
+    df.loc[missing_brand, "brand"] = df.loc[missing_brand, "name"].str.split().str[0]
+    df["data_status"] = df["data_status"].replace("", "Legacy project record — verify before purchase")
+    df["price_basis"] = df["price_basis"].replace("", "Indicative project estimate; basis not verified")
+    df["price_min_lakh"] = df["price_min_lakh"].fillna(df["price"])
+    df["price_max_lakh"] = df["price_max_lakh"].fillna(df["price"])
 
     return df.reset_index(drop=True)
 
 
 if not DATA_FILE.exists():
-    st.error("cars.csv was not found beside app.py.")
+    st.error(f"{DATA_FILE.name} was not found beside app.py. Keep the selected catalogue CSV in the same folder as app.py.")
     st.stop()
 
 try:
@@ -222,6 +329,65 @@ except Exception as error:
 if cars.empty:
     st.error("No valid car records were found in cars.csv.")
     st.stop()
+
+unknown_safety_count = int((cars["safety"] <= 0).sum()) if "safety" in cars.columns else 0
+if unknown_safety_count:
+    st.warning(f"Data quality notice: {unknown_safety_count} car records have unverified safety ratings. These are shown as Not verified and are not treated as confirmed crash-test scores. Verify specifications and prices before purchase.")
+
+# Import an additional catalogue without replacing the original cars.csv.
+# This makes it possible to grow the database as trusted records are collected.
+st.sidebar.markdown("---")
+st.sidebar.subheader("📚 Expand the car database")
+st.sidebar.caption("Upload a CSV using the CarWise template to add more models or variants for this session.")
+with st.sidebar.expander("Import a larger catalogue", expanded=False):
+    template_columns = [
+        "name", "price", "fuel", "transmission", "seats", "type", "mileage", "safety", "maintenance",
+        "brand", "variant", "model_year", "price_min_lakh", "price_max_lakh", "price_basis",
+        "engine_cc", "power_bhp", "torque_nm", "boot_litres", "ground_clearance_mm", "range_km",
+        "engine", "battery", "powertrain_notes", "features", "source_url", "last_verified",
+        "data_status", "safety_source", "image_url",
+    ]
+    template_df = pd.DataFrame(columns=template_columns)
+    st.download_button(
+        "Download CSV template",
+        template_df.to_csv(index=False).encode("utf-8"),
+        file_name="carwise_car_database_template.csv",
+        mime="text/csv",
+        use_container_width=True,
+        key="carwise_template_download",
+    )
+    uploaded_catalogue = st.file_uploader("Upload car catalogue CSV", type=["csv"], key="carwise_catalogue_upload")
+    if uploaded_catalogue is not None:
+        try:
+            incoming = pd.read_csv(uploaded_catalogue)
+            incoming.columns = [str(c).strip().lower() for c in incoming.columns]
+            required_import = ["name", "price", "fuel", "transmission", "seats", "type", "mileage", "safety"]
+            missing_import = [c for c in required_import if c not in incoming.columns]
+            if missing_import:
+                st.error("CSV is missing required columns: " + ", ".join(missing_import))
+            else:
+                # Reuse the same validation rules as the main catalogue.
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", encoding="utf-8", newline="", delete=False) as temp_file:
+                    import_path = Path(temp_file.name)
+                    incoming.to_csv(temp_file, index=False)
+                try:
+                    imported = load_cars(str(import_path), import_path.stat().st_mtime)
+                finally:
+                    try:
+                        import_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                if imported.empty:
+                    st.warning("No valid rows were found in the uploaded CSV.")
+                else:
+                    uploaded_names = set(imported["name"].str.casefold())
+                    base_cars = cars[~cars["name"].str.casefold().isin(uploaded_names)].copy()
+                    cars = pd.concat([base_cars, imported], ignore_index=True, sort=False)
+                    cars = cars.drop_duplicates(subset=["name"], keep="last").reset_index(drop=True)
+                    st.success(f"Loaded {len(imported):,} valid imported records. Current catalogue: {len(cars):,} unique car names.")
+                    st.caption("Imported records replace existing entries with the same car name for this session only. Add trusted data to cars.csv or a database file to make it permanent.")
+        except Exception as import_error:
+            st.error(f"Could not import this CSV: {import_error}")
 
 
 @st.cache_data
@@ -369,7 +535,9 @@ def calculate_ownership_score(car, budget, min_mileage, min_safety, max_maintena
     budget_score = max(0.0, min(100.0, (1 - float(car["price"]) / max(float(budget), 0.01)) * 100 + 35))
     mileage_score = 100.0 if min_mileage <= 0 else max(0.0, min(100.0, float(car["mileage"]) / float(min_mileage) * 70))
     maintenance_score = max(0.0, min(100.0, (6 - float(car["maintenance"])) / 5 * 100))
-    safety_score = max(0.0, min(100.0, float(car["safety"]) / 5 * 100))
+    # Safety value 0 means unverified, not a real 0/5 rating.
+    safety_value = float(car["safety"])
+    safety_score = 50.0 if safety_value <= 0 else max(0.0, min(100.0, safety_value / 5 * 100))
 
     checks = []
     if fuel == "Any" or str(car["fuel"]).lower() == str(fuel).lower():
@@ -411,7 +579,8 @@ def get_match_score_breakdown(
     type_points = 15.0 if car_type == "Any" or str(car["type"]).lower() == str(car_type).lower() else 0.0
     seat_points = 10.0 if float(car["seats"]) >= float(seats) else 0.0
     mileage_points = 15.0 if float(min_mileage) <= 0 else min(15.0, max(0.0, float(car["mileage"]) / float(min_mileage) * 15.0))
-    safety_points = 15.0 if float(min_safety) <= 0 else min(15.0, max(0.0, float(car["safety"]) / float(min_safety) * 15.0))
+    safety_value = float(car["safety"])
+    safety_points = 7.5 if safety_value <= 0 else (15.0 if float(min_safety) <= 0 else min(15.0, max(0.0, safety_value / float(min_safety) * 15.0)))
     maintenance_points = max(0.0, (6.0 - float(car["maintenance"])) / 5.0 * 5.0)
 
     components = [
@@ -465,7 +634,9 @@ def get_match_reasons(
     if car["mileage"] >= min_mileage:
         reasons.append("Meets mileage target")
 
-    if car["safety"] >= min_safety:
+    if float(car["safety"]) <= 0:
+        reasons.append("Safety rating is not verified — check an official safety assessment")
+    elif car["safety"] >= min_safety:
         reasons.append("Meets safety-rating target")
 
     if car["maintenance"] <= max_maintenance:
@@ -522,11 +693,14 @@ def recommend_cars(
         else:
             score += min(15.0, max(0.0, float(car["mileage"]) / float(min_mileage) * 15.0))
 
-        # Safety rating: score against the requested minimum, capped at full marks.
-        if float(min_safety) <= 0:
+        # Safety 0 means unknown; award neutral points, not a false verified score.
+        safety_value = float(car["safety"])
+        if safety_value <= 0:
+            score += 7.5
+        elif float(min_safety) <= 0:
             score += 15
         else:
-            score += min(15.0, max(0.0, float(car["safety"]) / float(min_safety) * 15.0))
+            score += min(15.0, max(0.0, safety_value / float(min_safety) * 15.0))
 
         # Prefer lower-maintenance cars within the user's allowed maintenance level.
         score += max(0.0, (6.0 - float(car["maintenance"])) / 5.0 * 5.0)
@@ -581,7 +755,9 @@ def get_highlights(
     else:
         checks.append("Falls below your selected mileage target.")
 
-    if car["safety"] >= min_safety:
+    if float(car["safety"]) <= 0:
+        checks.append("Safety rating is unverified; do not interpret this as a 0/5 crash-test result.")
+    elif car["safety"] >= min_safety:
         pros.append("Meets your selected safety-rating target.")
     else:
         checks.append("Falls below your selected safety-rating target.")
@@ -675,7 +851,7 @@ def build_pdf_report(
         ["Seats", f"{car['seats']:g}"],
         ["Vehicle type", str(car["type"])],
         ["Mileage in dataset", f"{car['mileage']:g}"],
-        ["Safety rating in dataset", f"{car['safety']:g}/5"],
+        ["Safety rating in dataset", "Not verified" if float(car["safety"]) <= 0 else f"{car['safety']:g}/5"],
         ["Maintenance level in dataset", f"{car['maintenance']:g}/5"],
     ]
 
@@ -792,6 +968,7 @@ st.markdown("""
 st.caption(
     "Personalized recommendations • Car comparison • Budget planning • Ownership-cost insights"
 )
+st.markdown("<div class='cw-eyebrow'>Your car-buying command centre</div>", unsafe_allow_html=True)
 
 # Quick-access dashboard cards (links jump to the corresponding sections below)
 st.markdown("""
@@ -821,6 +998,12 @@ st.markdown("""
 # SIDEBAR FILTERS
 # =========================================================
 
+st.sidebar.markdown("""
+<div class="cw-brand">
+  <div class="cw-brand-mark">🚘</div>
+  <div><div class="cw-brand-name">CarWise</div><div class="cw-brand-tag">Find Your Perfect Ride</div></div>
+</div>
+""", unsafe_allow_html=True)
 st.sidebar.title("🔎 Find Your Car")
 
 if st.sidebar.button("↻ Reset all filters", use_container_width=True):
@@ -935,6 +1118,34 @@ eligible = recommend_cars(
 
 
 # =========================================================
+# DATA CONFIDENCE SUMMARY
+# =========================================================
+
+# Safety score 0 is used in this project dataset to mean "not verified".
+unknown_safety_count = int((pd.to_numeric(cars["safety"], errors="coerce").fillna(0) <= 0).sum())
+missing_source_count = int(cars["source_url"].fillna("").astype(str).str.strip().eq("").sum())
+approximate_count = int(cars["data_status"].fillna("").astype(str).str.contains("approximate|unverified|verify", case=False, regex=True).sum())
+
+with st.expander("🛡️ Catalogue data confidence — check before buying", expanded=False):
+    q1, q2, q3 = st.columns(3)
+    q1.metric("Safety ratings not verified", unknown_safety_count)
+    q2.metric("Records without source link", missing_source_count)
+    q3.metric("Records flagged for review", approximate_count)
+    st.caption(
+        "CarWise is a decision-support tool, not an official automotive database. "
+        "A missing safety rating is unknown—not a zero-star crash-test result. "
+        "Prices and specifications should be checked with the manufacturer or an authorized dealer before purchase."
+    )
+
+if unknown_safety_count or missing_source_count or approximate_count:
+    st.info(
+        f"Data transparency notice: {unknown_safety_count} car records have no verified safety rating, "
+        f"{missing_source_count} have no source URL, and {approximate_count} are marked for review. "
+        "Recommendations are indicative until the relevant data is verified."
+    )
+
+
+# =========================================================
 # DASHBOARD METRICS
 # =========================================================
 
@@ -950,7 +1161,7 @@ m4.metric(
 )
 
 st.divider()
-st.header("🏆 Best Recommendation")
+st.header("🏆 Top Recommendation")
 
 selected_for_report = None
 selected_score = 0.0
@@ -1015,7 +1226,7 @@ else:
         st.write(f"**Seats:** {best['seats']:g}")
         st.write(f"**Vehicle type:** {best['type']}")
         st.write(f"**Mileage:** {best['mileage']:g}")
-        st.write(f"**Safety rating:** {best['safety']:g}/5")
+        st.write(f"**Safety rating:** {'Not verified' if float(best['safety']) <= 0 else str(best['safety']) + '/5'}")
         st.write(f"**Maintenance level:** {best['maintenance']:g}/5")
 
         st.markdown("#### Why it matches")
@@ -1091,12 +1302,12 @@ else:
 # =========================================================
 
 st.divider()
-st.header("⭐ Top Recommendations")
+st.header("🚘 Top 5 Recommended Cars")
 
 if eligible.empty:
     st.info("No eligible cars were found with the current filters.")
 else:
-    top = eligible.head(3)
+    top = eligible.head(5)
     columns = st.columns(len(top))
 
     for index, (_, car) in enumerate(top.iterrows()):
@@ -1105,12 +1316,18 @@ else:
                 st.image(car["image_url"], use_container_width=True)
 
             st.subheader(f"{index + 1}. {car['name']}")
-            st.metric("Match", f"{car['match_score']:.1f}%")
+            st.metric("Preference match", f"{car['match_score']:.1f}%")
             st.write(f"**Price:** {money(car['price'])}")
-            st.write(f"Fuel: {car['fuel']}")
-            st.write(f"Transmission: {car['transmission']}")
-            st.write(f"Seats: {car['seats']:g}")
-            st.write(f"Mileage: {car['mileage']:g}")
+            st.caption(f"{car['fuel']} · {car['transmission']} · {car['seats']:g} seats")
+            st.write(f"**Mileage:** {car['mileage']:g}")
+            if float(car['safety']) <= 0:
+                st.warning("Safety rating not verified", icon="🛡️")
+            else:
+                st.caption(f"Listed safety rating: {car['safety']:g}/5 — verify source before purchase")
+            if str(car.get('data_status', '')).strip():
+                status_text = str(car['data_status']).strip()
+                if any(flag in status_text.lower() for flag in ["approximate", "unverified", "verify", "legacy"]):
+                    st.caption("ℹ️ Data status: " + status_text)
 
     shortlist_export = eligible.copy()
     shortlist_export["ownership_score"] = shortlist_export.apply(
@@ -1238,7 +1455,7 @@ else:
             st.write(f"**Fuel:** {alt['fuel']}")
             st.write(f"**Transmission:** {alt['transmission']}")
             st.write(f"**Mileage:** {alt['mileage']:g}")
-            st.write(f"**Safety:** {alt['safety']:g}/5")
+            st.write(f"**Safety:** {'Not verified' if float(alt['safety']) <= 0 else str(alt['safety']) + '/5'}")
             if float(alt["maintenance"]) > float(max_maintenance):
                 st.warning("Listed maintenance level exceeds your selected limit.")
             else:
@@ -1545,7 +1762,7 @@ d1, d2, d3 = st.columns(3)
 
 d1.metric("Price", money(detail["price"]))
 d2.metric("Mileage", f"{detail['mileage']:g}")
-d3.metric("Safety rating", f"{detail['safety']:g}/5")
+d3.metric("Safety rating", "Not verified" if float(detail["safety"]) <= 0 else f"{detail['safety']:g}/5")
 
 st.write(f"**Fuel:** {detail['fuel']}")
 st.write(f"**Transmission:** {detail['transmission']}")
@@ -1878,7 +2095,14 @@ else:
 # =========================================================
 
 st.divider()
-st.header("📚 Car Catalogue")
+st.header("📚 Car Catalogue & Database Explorer")
+brand_count = int(cars["brand"].replace("", np.nan).nunique()) if "brand" in cars.columns else 0
+metric_cols = st.columns(4)
+metric_cols[0].metric("Car records", f"{len(cars):,}")
+metric_cols[1].metric("Brands", f"{brand_count:,}")
+metric_cols[2].metric("With source links", f"{int(cars["source_url"].astype(str).str.strip().ne("").sum()):,}")
+metric_cols[3].metric("With variant details", f"{int(cars["variant"].astype(str).str.strip().ne("").sum()):,}")
+st.caption("CarWise supports model- and variant-level records. Blank specifications mean the information has not been supplied; they are not inferred by the app.")
 
 search = st.text_input("Search car name", key="catalogue_search")
 
@@ -1930,16 +2154,21 @@ catalogue = catalogue.sort_values(
     ascending=ascending,
 )
 
-st.caption(f"Showing {len(catalogue)} of {len(cars)} cars.")
+st.caption(f"Showing {len(catalogue):,} of {len(cars):,} unique car records. Prices and specifications should be checked against the linked source before purchase.")
 
-catalogue_display = catalogue[
-    [
-        "name", "price", "fuel", "transmission",
-        "seats", "type", "mileage", "safety", "maintenance"
-    ]
-].rename(columns={
+catalogue_columns = [
+    "name", "brand", "variant", "price", "price_min_lakh", "price_max_lakh",
+    "fuel", "transmission", "seats", "type", "mileage", "safety", "maintenance",
+    "range_km", "engine_cc", "power_bhp", "boot_litres", "ground_clearance_mm",
+    "price_basis", "data_status", "last_verified", "source_url",
+]
+catalogue_display = catalogue[catalogue_columns].copy().rename(columns={
     "name": "Car",
-    "price": "Price (₹ lakh)",
+    "brand": "Brand",
+    "variant": "Variant",
+    "price": "Reference price (₹ lakh)",
+    "price_min_lakh": "Price from (₹ lakh)",
+    "price_max_lakh": "Price to (₹ lakh)",
     "fuel": "Fuel",
     "transmission": "Transmission",
     "seats": "Seats",
@@ -1947,6 +2176,15 @@ catalogue_display = catalogue[
     "mileage": "Mileage",
     "safety": "Safety / 5",
     "maintenance": "Maintenance / 5",
+    "range_km": "EV range (km)",
+    "engine_cc": "Engine (cc)",
+    "power_bhp": "Power (bhp)",
+    "boot_litres": "Boot (L)",
+    "ground_clearance_mm": "Ground clearance (mm)",
+    "price_basis": "Price basis",
+    "data_status": "Data quality status",
+    "last_verified": "Last verified",
+    "source_url": "Source URL",
 })
 
 st.dataframe(
